@@ -1,0 +1,1027 @@
+--// 🇻🇳 VIETNAM FLIGHT + RADAR + TARGET LOCK + PROTECTION
+--// LocalScript / executor test environment
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+
+local LP = Players.LocalPlayer
+local PlayerGui = LP:WaitForChild("PlayerGui")
+
+--==================================================
+-- SETTINGS
+--==================================================
+
+local MIN_SPEED = 10
+local MAX_SPEED = 500
+local speed = 50
+
+local MIN_UI = 0.35
+local MAX_UI = 1.35
+local uiScaleValue = 1
+
+local ITEM_SCAN_TIME = 0.7
+local RADAR_DISTANCE = 10000
+
+local ITEM_FOLDER_NAMES = {
+	Items=true, Item=true, Drops=true, Drop=true,
+	Loot=true, Pickups=true, Pickup=true,
+	Collectibles=true, Collectible=true,
+	Weapons=true, Tools=true, Objects=true
+}
+
+local ITEM_KEYWORDS = {
+	"item","coin","gem","diamond","chest","loot","drop",
+	"pickup","collect","collectible","weapon","sword",
+	"gun","key","potion","fruit","food","medkit","tool",
+	"ammo","crate","box","reward","orb","money"
+}
+
+--==================================================
+-- CHARACTER
+--==================================================
+
+local character
+local humanoid
+local root
+
+local function setupCharacter(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+	root = char:WaitForChild("HumanoidRootPart")
+end
+
+if LP.Character then
+	setupCharacter(LP.Character)
+end
+
+LP.CharacterAdded:Connect(function(char)
+	setupCharacter(char)
+end)
+
+--==================================================
+-- GUI
+--==================================================
+
+local old = PlayerGui:FindFirstChild("VietnamFlightRadar")
+if old then old:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "VietnamFlightRadar"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = PlayerGui
+
+local scale = Instance.new("UIScale")
+scale.Scale = uiScaleValue
+scale.Parent = gui
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.fromOffset(330, 650)
+main.Position = UDim2.new(1,-345,0.5,-325)
+main.BackgroundColor3 = Color3.fromRGB(220,0,0)
+main.BorderSizePixel = 0
+main.Parent = gui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0,12)
+mainCorner.Parent = main
+
+--==================================================
+-- TITLE
+--==================================================
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,-50,0,40)
+title.Position = UDim2.fromOffset(10,5)
+title.BackgroundTransparency = 1
+title.Text = "🇻🇳 FLIGHT + RADAR"
+title.TextColor3 = Color3.new(1,1,1)
+title.TextSize = 19
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local star = Instance.new("TextLabel")
+star.Size = UDim2.fromOffset(35,35)
+star.Position = UDim2.new(0.5,-17,0,40)
+star.BackgroundTransparency = 1
+star.Text = "★"
+star.TextColor3 = Color3.fromRGB(255,230,0)
+star.TextSize = 28
+star.Font = Enum.Font.GothamBlack
+star.Parent = main
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(35,35)
+close.Position = UDim2.new(1,-42,0,5)
+close.Text = "✕"
+close.TextSize = 20
+close.TextColor3 = Color3.new(1,1,1)
+close.BackgroundColor3 = Color3.fromRGB(150,0,0)
+close.Font = Enum.Font.GothamBold
+close.Parent = main
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0,8)
+closeCorner.Parent = close
+
+--==================================================
+-- BUTTON CREATOR
+--==================================================
+
+local function makeButton(text,y,height)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1,-20,0,height or 40)
+	b.Position = UDim2.fromOffset(10,y)
+	b.BackgroundColor3 = Color3.fromRGB(175,0,0)
+	b.TextColor3 = Color3.new(1,1,1)
+	b.TextSize = 16
+	b.Font = Enum.Font.GothamBold
+	b.Text = text
+	b.Parent = main
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0,8)
+	c.Parent = b
+
+	return b
+end
+
+--==================================================
+-- FLIGHT
+--==================================================
+
+local flyButton = makeButton("✈ BAY: OFF",80)
+local upButton = makeButton("▲ LÊN",125)
+local downButton = makeButton("▼ XUỐNG",170)
+
+local flying = false
+local upHeld = false
+local downHeld = false
+
+local flyVelocity
+local flyConnection
+
+local function stopFly()
+
+	flying = false
+	flyButton.Text = "✈ BAY: OFF"
+
+	if flyVelocity then
+		flyVelocity:Destroy()
+		flyVelocity = nil
+	end
+
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
+
+	if humanoid then
+		humanoid.PlatformStand = false
+		humanoid.AutoRotate = true
+	end
+end
+
+local function startFly()
+
+	if not root or not humanoid then return end
+
+	flying = true
+	flyButton.Text = "✈ BAY: ON"
+
+	humanoid.PlatformStand = false
+	humanoid.AutoRotate = true
+
+	flyVelocity = Instance.new("BodyVelocity")
+	flyVelocity.Name = "VietnamFlightVelocity"
+	flyVelocity.MaxForce = Vector3.new(1e9,1e9,1e9)
+	flyVelocity.P = 10000
+	flyVelocity.Velocity = Vector3.zero
+	flyVelocity.Parent = root
+
+	flyConnection = RunService.RenderStepped:Connect(function()
+
+		if not flying or not root or not humanoid then return end
+
+		local move = humanoid.MoveDirection
+
+		local horizontal = Vector3.new(
+			move.X,0,move.Z
+		)
+
+		if horizontal.Magnitude > 1 then
+			horizontal = horizontal.Unit
+		end
+
+		local velocity = horizontal * speed
+
+		if upHeld or UIS:IsKeyDown(Enum.KeyCode.Space) then
+			velocity += Vector3.new(0,speed,0)
+		end
+
+		if downHeld or UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+			velocity += Vector3.new(0,-speed,0)
+		end
+
+		flyVelocity.Velocity = velocity
+	end)
+end
+
+flyButton.MouseButton1Click:Connect(function()
+	if flying then
+		stopFly()
+	else
+		startFly()
+	end
+end)
+
+local function holdButton(button,downCallback,upCallback)
+
+	button.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch
+			or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			downCallback()
+		end
+	end)
+
+	button.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch
+			or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			upCallback()
+		end
+	end)
+end
+
+holdButton(upButton,
+	function() upHeld=true end,
+	function() upHeld=false end
+)
+
+holdButton(downButton,
+	function() downHeld=true end,
+	function() downHeld=false end
+)
+
+UIS.InputBegan:Connect(function(input,processed)
+	if processed then return end
+
+	if input.KeyCode == Enum.KeyCode.F then
+		if flying then
+			stopFly()
+		else
+			startFly()
+		end
+	end
+end)
+
+--==================================================
+-- SPEED
+--==================================================
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1,-20,0,25)
+speedLabel.Position = UDim2.fromOffset(10,215)
+speedLabel.BackgroundTransparency = 1
+speedLabel.TextColor3 = Color3.new(1,1,1)
+speedLabel.Text = "Tốc độ bay: "..speed
+speedLabel.TextSize = 15
+speedLabel.Font = Enum.Font.GothamBold
+speedLabel.Parent = main
+
+local speedBox = Instance.new("TextBox")
+speedBox.Size = UDim2.new(1,-20,0,35)
+speedBox.Position = UDim2.fromOffset(10,240)
+speedBox.BackgroundColor3 = Color3.new(1,1,1)
+speedBox.TextColor3 = Color3.new(0,0,0)
+speedBox.PlaceholderText = "10 - 500"
+speedBox.Text = tostring(speed)
+speedBox.TextSize = 16
+speedBox.Font = Enum.Font.Gotham
+speedBox.Parent = main
+
+local speedCorner = Instance.new("UICorner")
+speedCorner.CornerRadius = UDim.new(0,8)
+speedCorner.Parent = speedBox
+
+speedBox.FocusLost:Connect(function()
+
+	local n = tonumber(speedBox.Text)
+
+	if n then
+		speed = math.clamp(math.floor(n),MIN_SPEED,MAX_SPEED)
+	end
+
+	speedBox.Text = tostring(speed)
+	speedLabel.Text = "Tốc độ bay: "..speed
+end)
+
+--==================================================
+-- PLAYER SEARCH
+--==================================================
+
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(1,-120,0,35)
+searchBox.Position = UDim2.fromOffset(10,285)
+searchBox.BackgroundColor3 = Color3.new(1,1,1)
+searchBox.TextColor3 = Color3.new(0,0,0)
+searchBox.PlaceholderText = "Tên người chơi..."
+searchBox.TextSize = 14
+searchBox.Font = Enum.Font.Gotham
+searchBox.Parent = main
+
+local searchCorner = Instance.new("UICorner")
+searchCorner.CornerRadius = UDim.new(0,8)
+searchCorner.Parent = searchBox
+
+local searchButton = Instance.new("TextButton")
+searchButton.Size = UDim2.fromOffset(95,35)
+searchButton.Position = UDim2.new(1,-105,0,285)
+searchButton.Text = "🔎 TÌM"
+searchButton.TextSize = 14
+searchButton.Font = Enum.Font.GothamBold
+searchButton.TextColor3 = Color3.new(1,1,1)
+searchButton.BackgroundColor3 = Color3.fromRGB(175,0,0)
+searchButton.Parent = main
+
+local searchCorner2 = Instance.new("UICorner")
+searchCorner2.CornerRadius = UDim.new(0,8)
+searchCorner2.Parent = searchButton
+
+--==================================================
+-- RADAR
+--==================================================
+
+local playersRadar = false
+local itemsRadar = false
+local targetPlayer = nil
+
+local playerButton = makeButton("👥 PLAYERS: OFF",330)
+local itemButton = makeButton("📦 ITEMS: OFF",375)
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1,-20,0,40)
+status.Position = UDim2.fromOffset(10,420)
+status.BackgroundTransparency = 1
+status.TextColor3 = Color3.new(1,1,1)
+status.Text = "Radar: sẵn sàng"
+status.TextSize = 13
+status.Font = Enum.Font.GothamBold
+status.TextWrapped = true
+status.Parent = main
+
+--==================================================
+-- TARGET LOCK
+--==================================================
+
+local targetLock = false
+local targetLockConnection
+
+local targetButton = makeButton(
+	"🎯 TARGET LOCK: OFF",
+	465
+)
+
+local function findPlayer(text)
+
+	text = string.lower(tostring(text))
+
+	if text == "" then return nil end
+
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if string.lower(plr.Name) == text
+			or string.lower(plr.DisplayName) == text then
+			return plr
+		end
+	end
+
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if string.find(string.lower(plr.Name),text,1,true)
+			or string.find(string.lower(plr.DisplayName),text,1,true) then
+			return plr
+		end
+	end
+
+	return nil
+end
+
+searchButton.MouseButton1Click:Connect(function()
+
+	targetPlayer = findPlayer(searchBox.Text)
+
+	if targetPlayer then
+		status.Text = "🎯 Đã tìm: "..targetPlayer.DisplayName
+	else
+		status.Text = "❌ Không tìm thấy người chơi"
+	end
+end)
+
+local function stopTargetLock()
+
+	targetLock = false
+	targetButton.Text = "🎯 TARGET LOCK: OFF"
+
+	if targetLockConnection then
+		targetLockConnection:Disconnect()
+		targetLockConnection = nil
+	end
+end
+
+local function startTargetLock()
+
+	if not targetPlayer then
+		status.Text = "❌ Hãy tìm người chơi trước"
+		return
+	end
+
+	targetLock = true
+	targetButton.Text = "🎯 TARGET LOCK: ON"
+
+	targetLockConnection = RunService.RenderStepped:Connect(function()
+
+		if not targetLock then return end
+
+		if not targetPlayer
+			or not targetPlayer.Character then
+
+			stopTargetLock()
+			return
+		end
+
+		local targetRoot =
+			targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+		local targetHum =
+			targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+
+		if not targetRoot
+			or not targetHum
+			or targetHum.Health <= 0 then
+
+			stopTargetLock()
+			return
+		end
+
+		local camera = workspace.CurrentCamera
+
+		if camera then
+			camera.CFrame = CFrame.lookAt(
+				camera.CFrame.Position,
+				targetRoot.Position
+			)
+		end
+	end)
+end
+
+targetButton.MouseButton1Click:Connect(function()
+
+	if targetLock then
+		stopTargetLock()
+	else
+		startTargetLock()
+	end
+end)
+
+--==================================================
+-- PROTECTION
+--==================================================
+
+local protection = false
+local protectionConnection
+
+local protectionButton = makeButton(
+	"🛡️ BẢO VỆ: OFF",
+	510
+)
+
+local function stopProtection()
+
+	protection = false
+	protectionButton.Text = "🛡️ BẢO VỆ: OFF"
+
+	if protectionConnection then
+		protectionConnection:Disconnect()
+		protectionConnection = nil
+	end
+end
+
+local function startProtection()
+
+	protection = true
+	protectionButton.Text = "🛡️ BẢO VỆ: ON"
+
+	protectionConnection = RunService.Heartbeat:Connect(function()
+
+		if not protection or not humanoid then
+			return
+		end
+
+		if humanoid.Health > 0
+			and humanoid.Health < humanoid.MaxHealth then
+
+			humanoid.Health = humanoid.MaxHealth
+		end
+	end)
+end
+
+protectionButton.MouseButton1Click:Connect(function()
+
+	if protection then
+		stopProtection()
+	else
+		startProtection()
+	end
+end)
+
+--==================================================
+-- RADAR MARKERS
+--==================================================
+
+local markerFolder = Instance.new("Folder")
+markerFolder.Name = "RadarMarkers"
+markerFolder.Parent = workspace
+
+local markers = {}
+
+local function getPart(obj)
+
+	if not obj or not obj.Parent then return nil end
+
+	if obj:IsA("BasePart") then
+		return obj
+	end
+
+	if obj:IsA("Tool") then
+		local handle = obj:FindFirstChild("Handle",true)
+		if handle and handle:IsA("BasePart") then
+			return handle
+		end
+	end
+
+	if obj:IsA("Model") then
+
+		if obj.PrimaryPart then
+			return obj.PrimaryPart
+		end
+
+		for _,v in ipairs(obj:GetDescendants()) do
+			if v:IsA("BasePart") then
+				return v
+			end
+		end
+	end
+
+	return nil
+end
+
+local function createMarker(obj,text)
+
+	local part = getPart(obj)
+	if not part then return end
+
+	if markers[obj] then
+
+		local marker = markers[obj]
+
+		if marker.Parent then
+
+			marker.Adornee = part
+
+			local label = marker:FindFirstChild("Label")
+
+			if label then
+				label.Text = text
+			end
+
+			return
+		end
+	end
+
+	local bill = Instance.new("BillboardGui")
+	bill.Name = "RadarMarker"
+	bill.Adornee = part
+	bill.Size = UDim2.fromOffset(180,45)
+	bill.StudsOffset = Vector3.new(0,3,0)
+	bill.AlwaysOnTop = true
+	bill.MaxDistance = RADAR_DISTANCE
+	bill.Parent = markerFolder
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.fromScale(1,1)
+	label.BackgroundColor3 = Color3.new(0,0,0)
+	label.BackgroundTransparency = 0.25
+	label.TextColor3 = Color3.fromRGB(255,255,0)
+	label.TextStrokeTransparency = 0
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Text = text
+	label.Parent = bill
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0,8)
+	c.Parent = label
+
+	markers[obj] = bill
+end
+
+local function removeMarker(obj)
+
+	if markers[obj] then
+		markers[obj]:Destroy()
+		markers[obj] = nil
+	end
+end
+
+--==================================================
+-- ITEM DETECTION
+--==================================================
+
+local function lower(s)
+	return string.lower(tostring(s))
+end
+
+local function nameLooksLikeItem(name)
+
+	local n = lower(name)
+
+	for _,word in ipairs(ITEM_KEYWORDS) do
+		if string.find(n,word,1,true) then
+			return true
+		end
+	end
+
+	return false
+end
+
+local function insideItemFolder(obj)
+
+	local p = obj.Parent
+
+	while p and p ~= workspace do
+
+		if ITEM_FOLDER_NAMES[p.Name] then
+			return true
+		end
+
+		p = p.Parent
+	end
+
+	return false
+end
+
+local function isPlayerCharacter(obj)
+
+	for _,plr in ipairs(Players:GetPlayers()) do
+
+		if plr.Character
+			and obj:IsDescendantOf(plr.Character) then
+
+			return true
+		end
+	end
+
+	return false
+end
+
+local function isItem(obj)
+
+	if not obj or obj == workspace then
+		return false
+	end
+
+	if isPlayerCharacter(obj) then
+		return false
+	end
+
+	if CollectionService:HasTag(obj,"RadarItem") then
+		return true
+	end
+
+	if obj:IsA("Tool") then
+		return true
+	end
+
+	if obj:GetAttribute("IsItem") == true
+		or obj:GetAttribute("Item") == true then
+		return true
+	end
+
+	if insideItemFolder(obj) then
+
+		if obj:IsA("Model")
+			or obj:IsA("BasePart")
+			or obj:IsA("Tool") then
+			return true
+		end
+	end
+
+	if (obj:IsA("Model") or obj:IsA("BasePart"))
+		and nameLooksLikeItem(obj.Name) then
+		return true
+	end
+
+	return false
+end
+
+local itemCache = {}
+
+local function scanItems()
+
+	table.clear(itemCache)
+
+	for _,obj in ipairs(workspace:GetDescendants()) do
+
+		if isItem(obj) then
+
+			local part = getPart(obj)
+
+			if part then
+				itemCache[obj] = true
+			end
+		end
+	end
+end
+
+itemButton.MouseButton1Click:Connect(function()
+
+	itemsRadar = not itemsRadar
+
+	if itemsRadar then
+
+		itemButton.Text = "📦 ITEMS: ON"
+		scanItems()
+		status.Text = "📦 Đang quét vật phẩm..."
+
+	else
+
+		itemButton.Text = "📦 ITEMS: OFF"
+	end
+end)
+
+playerButton.MouseButton1Click:Connect(function()
+
+	playersRadar = not playersRadar
+
+	if playersRadar then
+		playerButton.Text = "👥 PLAYERS: ON"
+	else
+		playerButton.Text = "👥 PLAYERS: OFF"
+	end
+end)
+
+--==================================================
+-- UI SIZE
+--==================================================
+
+local sizeLabel = Instance.new("TextLabel")
+sizeLabel.Size = UDim2.new(1,-20,0,25)
+sizeLabel.Position = UDim2.fromOffset(10,555)
+sizeLabel.BackgroundTransparency = 1
+sizeLabel.TextColor3 = Color3.new(1,1,1)
+sizeLabel.Text = "Kích thước UI: 100%"
+sizeLabel.TextSize = 13
+sizeLabel.Font = Enum.Font.GothamBold
+sizeLabel.Parent = main
+
+local smaller = Instance.new("TextButton")
+smaller.Size = UDim2.fromOffset(85,35)
+smaller.Position = UDim2.fromOffset(10,585)
+smaller.Text = "➖ Nhỏ"
+smaller.TextSize = 14
+smaller.Font = Enum.Font.GothamBold
+smaller.BackgroundColor3 = Color3.fromRGB(175,0,0)
+smaller.TextColor3 = Color3.new(1,1,1)
+smaller.Parent = main
+
+local bigger = smaller:Clone()
+bigger.Position = UDim2.fromOffset(102,585)
+bigger.Text = "➕ Lớn"
+bigger.Parent = main
+
+local resetSize = smaller:Clone()
+resetSize.Size = UDim2.fromOffset(105,35)
+resetSize.Position = UDim2.fromOffset(194,585)
+resetSize.Text = "100%"
+resetSize.Parent = main
+
+for _,b in ipairs({smaller,bigger,resetSize}) do
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0,8)
+	c.Parent = b
+end
+
+local function updateUIScale()
+
+	uiScaleValue = math.clamp(
+		uiScaleValue,
+		MIN_UI,
+		MAX_UI
+	)
+
+	scale.Scale = uiScaleValue
+
+	sizeLabel.Text =
+		"Kích thước UI: "
+		..math.floor(uiScaleValue*100)
+		.."%"
+end
+
+smaller.MouseButton1Click:Connect(function()
+	uiScaleValue -= 0.1
+	updateUIScale()
+end)
+
+bigger.MouseButton1Click:Connect(function()
+	uiScaleValue += 0.1
+	updateUIScale()
+end)
+
+resetSize.MouseButton1Click:Connect(function()
+	uiScaleValue = 1
+	updateUIScale()
+end)
+
+--==================================================
+-- RADAR UPDATE
+--==================================================
+
+local scanTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+
+	if not root then return end
+
+	scanTimer += dt
+
+	if itemsRadar and scanTimer >= ITEM_SCAN_TIME then
+		scanTimer = 0
+		scanItems()
+	end
+
+	for obj in pairs(markers) do
+
+		local need = false
+
+		if itemsRadar and itemCache[obj] then
+			need = true
+		end
+
+		if not obj.Parent then
+			need = false
+		end
+
+		if not need then
+			removeMarker(obj)
+		end
+	end
+
+	if playersRadar then
+
+		for _,plr in ipairs(Players:GetPlayers()) do
+
+			if plr ~= LP and plr.Character then
+
+				local pr =
+					plr.Character:FindFirstChild("HumanoidRootPart")
+
+				if pr then
+
+					local distance =
+						math.floor(
+							(root.Position-pr.Position).Magnitude
+						)
+
+					createMarker(
+						plr.Character,
+						"👤 "..plr.DisplayName.." ["..distance.."m]"
+					)
+				end
+			end
+		end
+	end
+
+	if targetPlayer
+		and targetPlayer ~= LP
+		and targetPlayer.Character then
+
+		local pr =
+			targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+		if pr then
+
+			local distance =
+				math.floor(
+					(root.Position-pr.Position).Magnitude
+				)
+
+			createMarker(
+				targetPlayer.Character,
+				"🎯 "..targetPlayer.DisplayName.." ["..distance.."m]"
+			)
+		end
+	end
+
+	if itemsRadar then
+
+		for obj in pairs(itemCache) do
+
+			local part = getPart(obj)
+
+			if part then
+
+				local distance =
+					math.floor(
+						(root.Position-part.Position).Magnitude
+					)
+
+				createMarker(
+					obj,
+					"📦 "..obj.Name.." ["..distance.."m]"
+				)
+			end
+		end
+	end
+end)
+
+--==================================================
+-- CLOSE / OPEN
+--==================================================
+
+local reopen = Instance.new("TextButton")
+reopen.Size = UDim2.fromOffset(55,55)
+reopen.Position = UDim2.new(1,-65,0.5,-25)
+reopen.Text = "🇻🇳"
+reopen.TextSize = 27
+reopen.BackgroundColor3 = Color3.fromRGB(220,0,0)
+reopen.TextColor3 = Color3.new(1,1,1)
+reopen.Visible = false
+reopen.Parent = gui
+
+local reopenCorner = Instance.new("UICorner")
+reopenCorner.CornerRadius = UDim.new(1,0)
+reopenCorner.Parent = reopen
+
+close.MouseButton1Click:Connect(function()
+	main.Visible = false
+end)
+
+reopen.MouseButton1Click:Connect(function()
+	main.Visible = true
+	reopen.Visible = false
+end)
+
+main:GetPropertyChangedSignal("Visible"):Connect(function()
+	reopen.Visible = not main.Visible
+end)
+
+--==================================================
+-- DRAG UI
+--==================================================
+
+local dragging = false
+local dragStart
+local startPos
+
+title.InputBegan:Connect(function(input)
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+
+		dragging = true
+		dragStart = input.Position
+		startPos = main.Position
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+
+	if not dragging then return end
+
+	if input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch then
+
+		local delta = input.Position-dragStart
+
+		main.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset+delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset+delta.Y
+		)
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+
+		dragging = false
+	end
+end)
+
+print("🇻🇳 Vietnam Flight + Radar + Target Lock + Protection loaded!")
