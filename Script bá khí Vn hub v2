@@ -1,0 +1,996 @@
+--// 🇻🇳 I_Love_Viet_Nam hub
+--// FLIGHT + RADAR + ITEM RADAR + INVISIBLE + SAFE RESCUE + FIX LAG
+--// UI 50% | Kéo được | Close không tắt chức năng
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local CollectionService = game:GetService("CollectionService")
+
+local player = Players.LocalPlayer
+local pg = player:WaitForChild("PlayerGui")
+
+--==================================================
+-- SETTINGS
+--==================================================
+
+local MIN_SPEED = 10
+local MAX_SPEED = 500
+local flightSpeed = 70
+
+local LOW_HP = 25
+local AUTO_RESCUE = true
+
+local flying = false
+local invisible = false
+local protection = false
+local fixLag = false
+
+local safePosition = nil
+local safePart = nil
+local rescueRunning = false
+
+local radarPlayers = false
+local radarItems = false
+local radarTarget = false
+local targetName = ""
+
+local flightBV = nil
+local flightConnection = nil
+
+local playerMarkers = {}
+local itemMarkers = {}
+local targetMarker = nil
+
+--==================================================
+-- CHARACTER
+--==================================================
+
+local function getCharacter()
+	return player.Character
+end
+
+local function getRoot()
+	local c = getCharacter()
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHumanoid()
+	local c = getCharacter()
+	return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+--==================================================
+-- GUI
+--==================================================
+
+local old = pg:FindFirstChild("I_Love_Viet_Nam_hub")
+if old then
+	old:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "I_Love_Viet_Nam_hub"
+gui.ResetOnSpawn = false
+gui.Parent = pg
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.fromOffset(300,590)
+main.Position = UDim2.new(1,-165,0.5,-148)
+main.BackgroundColor3 = Color3.fromRGB(125,10,10)
+main.BorderSizePixel = 0
+main.Active = true
+main.Parent = gui
+
+Instance.new("UICorner",main).CornerRadius = UDim.new(0,14)
+
+-- 50% TOÀN BỘ UI
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = 0.5
+uiScale.Parent = main
+
+--==================================================
+-- NÚT MỞ LẠI
+--==================================================
+
+local openButton = Instance.new("TextButton")
+openButton.Size = UDim2.fromOffset(50,50)
+openButton.Position = UDim2.new(1,-65,0.5,-25)
+openButton.BackgroundColor3 = Color3.fromRGB(210,20,20)
+openButton.Text = "🇻🇳"
+openButton.TextSize = 23
+openButton.Visible = false
+openButton.Parent = gui
+
+Instance.new("UICorner",openButton).CornerRadius = UDim.new(1,0)
+
+--==================================================
+-- TITLE + DRAG
+--==================================================
+
+local titleBar = Instance.new("TextButton")
+titleBar.Size = UDim2.new(1,-50,0,45)
+titleBar.Position = UDim2.fromOffset(0,0)
+titleBar.BackgroundTransparency = 1
+titleBar.Text = "🇻🇳 I_Love_Viet_Nam hub"
+titleBar.TextColor3 = Color3.new(1,1,1)
+titleBar.TextSize = 18
+titleBar.Font = Enum.Font.GothamBold
+titleBar.Parent = main
+
+local dragging = false
+local dragStart
+local startPos
+
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+
+		dragging = true
+		dragStart = input.Position
+		startPos = main.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if dragging and (
+		input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch
+	) then
+
+		local delta = input.Position - dragStart
+
+		main.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+--==================================================
+-- CLOSE
+--==================================================
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(38,38)
+close.Position = UDim2.new(1,-45,0,5)
+close.BackgroundColor3 = Color3.fromRGB(180,0,0)
+close.Text = "×"
+close.TextColor3 = Color3.new(1,1,1)
+close.TextSize = 24
+close.Parent = main
+
+Instance.new("UICorner",close).CornerRadius = UDim.new(0,9)
+
+close.MouseButton1Click:Connect(function()
+	main.Visible = false
+	openButton.Visible = true
+end)
+
+openButton.MouseButton1Click:Connect(function()
+	main.Visible = true
+	openButton.Visible = false
+end)
+
+--==================================================
+-- CONTENT
+--==================================================
+
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1,0,1,-50)
+content.Position = UDim2.fromOffset(0,50)
+content.BackgroundTransparency = 1
+content.ClipsDescendants = true
+content.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0,7)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = content
+
+local padding = Instance.new("UIPadding")
+padding.PaddingTop = UDim.new(0,5)
+padding.PaddingBottom = UDim.new(0,5)
+padding.PaddingLeft = UDim.new(0,10)
+padding.PaddingRight = UDim.new(0,10)
+padding.Parent = content
+
+local function makeButton(text)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1,0,0,38)
+	b.BackgroundColor3 = Color3.fromRGB(175,20,20)
+	b.TextColor3 = Color3.new(1,1,1)
+	b.TextSize = 14
+	b.Font = Enum.Font.GothamBold
+	b.Text = text
+	b.Parent = content
+
+	Instance.new("UICorner",b).CornerRadius = UDim.new(0,8)
+
+	return b
+end
+
+--==================================================
+-- FLIGHT
+--==================================================
+
+local flyButton = makeButton("✈️ BAY: OFF")
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1,0,0,27)
+speedLabel.BackgroundTransparency = 1
+speedLabel.TextColor3 = Color3.new(1,1,1)
+speedLabel.TextSize = 14
+speedLabel.Font = Enum.Font.GothamBold
+speedLabel.Text = "⚡ Tốc độ bay: "..flightSpeed
+speedLabel.Parent = content
+
+local speedDown = makeButton("➖ GIẢM TỐC ĐỘ")
+local speedUp = makeButton("➕ TĂNG TỐC ĐỘ")
+
+local upButton = makeButton("⬆️ BAY LÊN")
+local downButton = makeButton("⬇️ BAY XUỐNG")
+
+--==================================================
+-- INVISIBLE
+--==================================================
+
+local invisButton = makeButton("👻 TÀNG HÌNH: OFF")
+
+--==================================================
+-- SAFE
+--==================================================
+
+local saveButton = makeButton("📍 LƯU VỊ TRÍ AN TOÀN")
+local rescueButton = makeButton("🛟 BAY CỨU HỘ")
+
+local protectionButton = makeButton("🛡️ BẢO VỆ: OFF")
+
+--==================================================
+-- RADAR
+--==================================================
+
+local radarPlayerButton = makeButton("📡 RADAR NGƯỜI CHƠI: OFF")
+
+local radarTargetButton = makeButton("🎯 RADAR TÊN: OFF")
+
+local targetBox = Instance.new("TextBox")
+targetBox.Size = UDim2.new(1,0,0,36)
+targetBox.BackgroundColor3 = Color3.fromRGB(100,5,5)
+targetBox.PlaceholderText = "Nhập tên người chơi..."
+targetBox.Text = ""
+targetBox.TextColor3 = Color3.new(1,1,1)
+targetBox.PlaceholderColor3 = Color3.fromRGB(200,200,200)
+targetBox.TextSize = 13
+targetBox.ClearTextOnFocus = false
+targetBox.Parent = content
+
+Instance.new("UICorner",targetBox).CornerRadius = UDim.new(0,8)
+
+local radarItemButton = makeButton("📦 RADAR ITEM: OFF")
+
+--==================================================
+-- FIX LAG
+--==================================================
+
+local lagButton = makeButton("⚡ FIX LAG: OFF")
+
+--==================================================
+-- RESIZE
+--==================================================
+
+local resizeButton = makeButton("🔽 THU NHỎ MENU")
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1,0,0,25)
+status.BackgroundTransparency = 1
+status.TextColor3 = Color3.new(1,1,1)
+status.TextSize = 12
+status.Font = Enum.Font.Gotham
+status.Text = "❤️ HP: --"
+status.Parent = content
+
+local smallUI = false
+
+resizeButton.MouseButton1Click:Connect(function()
+	smallUI = not smallUI
+
+	if smallUI then
+		uiScale.Scale = 0.38
+		resizeButton.Text = "🔼 PHÓNG TO MENU"
+	else
+		uiScale.Scale = 0.5
+		resizeButton.Text = "🔽 THU NHỎ MENU"
+	end
+end)
+
+--==================================================
+-- FLIGHT
+--==================================================
+
+local upHeld = false
+local downHeld = false
+
+local function stopFlight()
+	flying = false
+
+	if flightConnection then
+		flightConnection:Disconnect()
+		flightConnection = nil
+	end
+
+	if flightBV then
+		flightBV:Destroy()
+		flightBV = nil
+	end
+end
+
+local function startFlight()
+	local r = getRoot()
+	if not r then return end
+
+	stopFlight()
+
+	flying = true
+
+	flightBV = Instance.new("BodyVelocity")
+	flightBV.Name = "VietnamFlight"
+	flightBV.MaxForce = Vector3.new(1e9,1e9,1e9)
+	flightBV.P = 25000
+	flightBV.Parent = r
+
+	flightConnection = RunService.Heartbeat:Connect(function()
+		if not flying or not flightBV then return end
+
+		local h = getHumanoid()
+		local rr = getRoot()
+
+		if not h or not rr then
+			stopFlight()
+			return
+		end
+
+		local velocity = h.MoveDirection * flightSpeed
+
+		if upHeld then
+			velocity += Vector3.new(0,flightSpeed,0)
+		end
+
+		if downHeld then
+			velocity += Vector3.new(0,-flightSpeed,0)
+		end
+
+		flightBV.Velocity = velocity
+	end)
+end
+
+flyButton.MouseButton1Click:Connect(function()
+	if flying then
+		stopFlight()
+		flyButton.Text = "✈️ BAY: OFF"
+	else
+		startFlight()
+		flyButton.Text = "✈️ BAY: ON"
+	end
+end)
+
+upButton.MouseButton1Down:Connect(function()
+	upHeld = true
+end)
+
+upButton.MouseButton1Up:Connect(function()
+	upHeld = false
+end)
+
+downButton.MouseButton1Down:Connect(function()
+	downHeld = true
+end)
+
+downButton.MouseButton1Up:Connect(function()
+	downHeld = false
+end)
+
+--==================================================
+-- SPEED
+--==================================================
+
+speedDown.MouseButton1Click:Connect(function()
+	flightSpeed = math.max(MIN_SPEED,flightSpeed-10)
+	speedLabel.Text = "⚡ Tốc độ bay: "..flightSpeed
+end)
+
+speedUp.MouseButton1Click:Connect(function()
+	flightSpeed = math.min(MAX_SPEED,flightSpeed+10)
+	speedLabel.Text = "⚡ Tốc độ bay: "..flightSpeed
+end)
+
+--==================================================
+-- INVISIBLE
+--==================================================
+
+local transparencyCache = {}
+
+local function setInvisible(state)
+	local c = getCharacter()
+	if not c then return end
+
+	invisible = state
+
+	if state then
+		transparencyCache = {}
+
+		for _,obj in ipairs(c:GetDescendants()) do
+			if obj:IsA("BasePart") then
+				transparencyCache[obj] = obj.Transparency
+				obj.Transparency = 1
+
+			elseif obj:IsA("Decal") then
+				transparencyCache[obj] = obj.Transparency
+				obj.Transparency = 1
+			end
+		end
+	else
+		for obj,value in pairs(transparencyCache) do
+			if obj and obj.Parent then
+				obj.Transparency = value
+			end
+		end
+
+		transparencyCache = {}
+	end
+end
+
+invisButton.MouseButton1Click:Connect(function()
+	setInvisible(not invisible)
+
+	invisButton.Text =
+		invisible
+		and "👻 TÀNG HÌNH: ON"
+		or "👻 TÀNG HÌNH: OFF"
+end)
+
+--==================================================
+-- SAVE SAFE
+--==================================================
+
+local function saveSafe()
+	local r = getRoot()
+	if not r then return end
+
+	safePosition = r.Position
+
+	if safePart then
+		safePart:Destroy()
+	end
+
+	safePart = Instance.new("Part")
+	safePart.Name = "VietnamSafeZone"
+	safePart.Size = Vector3.new(10,0.5,10)
+	safePart.Anchored = true
+	safePart.CanCollide = false
+	safePart.CanTouch = false
+	safePart.CanQuery = false
+	safePart.Transparency = 0.55
+	safePart.Material = Enum.Material.Neon
+	safePart.Color = Color3.fromRGB(255,0,0)
+	safePart.Position = safePosition-Vector3.new(0,3,0)
+	safePart.Parent = workspace
+
+	saveButton.Text = "✅ ĐÃ LƯU"
+
+	task.delay(1.5,function()
+		if saveButton.Parent then
+			saveButton.Text = "📍 LƯU VỊ TRÍ AN TOÀN"
+		end
+	end)
+end
+
+saveButton.MouseButton1Click:Connect(saveSafe)
+
+--==================================================
+-- BAY CỨU HỘ
+--==================================================
+
+local function flyToSafe()
+	if rescueRunning then return end
+	if not safePosition then
+		rescueButton.Text = "⚠️ CHƯA LƯU"
+
+		task.delay(1.5,function()
+			if rescueButton.Parent then
+				rescueButton.Text = "🛟 BAY CỨU HỘ"
+			end
+		end)
+
+		return
+	end
+
+	local r = getRoot()
+	if not r then return end
+
+	rescueRunning = true
+
+	local oldFlying = flying
+
+	if flightBV then
+		flightBV:Destroy()
+		flightBV = nil
+	end
+
+	local bv = Instance.new("BodyVelocity")
+	bv.Name = "SafeRescueFlight"
+	bv.MaxForce = Vector3.new(1e9,1e9,1e9)
+	bv.P = 30000
+	bv.Parent = r
+
+	local connection
+
+	connection = RunService.Heartbeat:Connect(function()
+		if not r.Parent then
+			connection:Disconnect()
+			bv:Destroy()
+			rescueRunning = false
+			return
+		end
+
+		local target = safePosition+Vector3.new(0,5,0)
+		local offset = target-r.Position
+		local distance = offset.Magnitude
+
+		if distance <= 7 then
+			bv.Velocity = Vector3.zero
+			connection:Disconnect()
+			bv:Destroy()
+
+			rescueRunning = false
+
+			if oldFlying then
+				startFlight()
+			end
+
+			rescueButton.Text = "✅ ĐÃ VỀ AN TOÀN"
+
+			task.delay(1.5,function()
+				if rescueButton.Parent then
+					rescueButton.Text = "🛟 BAY CỨU HỘ"
+				end
+			end)
+
+			return
+		end
+
+		bv.Velocity =
+			offset.Unit *
+			math.min(140,math.max(60,distance*2))
+	end)
+end
+
+rescueButton.MouseButton1Click:Connect(flyToSafe)
+
+--==================================================
+-- PROTECTION
+--==================================================
+
+protectionButton.MouseButton1Click:Connect(function()
+	protection = not protection
+
+	protectionButton.Text =
+		protection
+		and "🛡️ BẢO VỆ: ON"
+		or "🛡️ BẢO VỆ: OFF"
+end)
+
+--==================================================
+-- RADAR HELPERS
+--==================================================
+
+local function clearPlayerMarkers()
+	for _,marker in pairs(playerMarkers) do
+		if marker then
+			marker:Destroy()
+		end
+	end
+
+	playerMarkers = {}
+end
+
+local function clearItemMarkers()
+	for _,marker in pairs(itemMarkers) do
+		if marker then
+			marker:Destroy()
+		end
+	end
+
+	itemMarkers = {}
+end
+
+local function makeMarker(part,text)
+	if not part or not part:IsA("BasePart") then
+		return nil
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "VietnamRadarMarker"
+	billboard.Adornee = part
+	billboard.Size = UDim2.fromOffset(150,35)
+	billboard.StudsOffset = Vector3.new(0,3,0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = gui
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1,1)
+	label.BackgroundTransparency = 0.25
+	label.BackgroundColor3 = Color3.fromRGB(120,0,0)
+	label.TextColor3 = Color3.new(1,1,1)
+	label.TextStrokeTransparency = 0
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Text = text
+	label.Parent = billboard
+
+	Instance.new("UICorner",label).CornerRadius = UDim.new(0,6)
+
+	return billboard
+end
+
+--==================================================
+-- RADAR PLAYERS
+--==================================================
+
+local function updatePlayerRadar()
+	if not radarPlayers then
+		clearPlayerMarkers()
+		return
+	end
+
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+
+			local char = plr.Character
+			local r = char and char:FindFirstChild("HumanoidRootPart")
+
+			if r then
+				if not playerMarkers[plr] then
+					playerMarkers[plr] =
+						makeMarker(r,"👤 "..plr.Name)
+				end
+			end
+		end
+	end
+
+	for plr,marker in pairs(playerMarkers) do
+		if not plr.Parent or not plr.Character then
+			if marker then marker:Destroy() end
+			playerMarkers[plr] = nil
+		end
+	end
+end
+
+radarPlayerButton.MouseButton1Click:Connect(function()
+	radarPlayers = not radarPlayers
+
+	radarPlayerButton.Text =
+		radarPlayers
+		and "📡 RADAR NGƯỜI CHƠI: ON"
+		or "📡 RADAR NGƯỜI CHƠI: OFF"
+
+	if not radarPlayers then
+		clearPlayerMarkers()
+	end
+end)
+
+--==================================================
+-- TARGET RADAR
+--==================================================
+
+local function findPlayer(name)
+	name = string.lower(name or "")
+
+	if name == "" then
+		return nil
+	end
+
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if string.lower(plr.Name) == name
+		or string.find(string.lower(plr.Name),name,1,true) then
+			return plr
+		end
+	end
+
+	return nil
+end
+
+local function updateTargetRadar()
+	if not radarTarget then
+		if targetMarker then
+			targetMarker:Destroy()
+			targetMarker = nil
+		end
+		return
+	end
+
+	local target = findPlayer(targetName)
+
+	if not target then
+		if targetMarker then
+			targetMarker:Destroy()
+			targetMarker = nil
+		end
+		return
+	end
+
+	local char = target.Character
+	local r = char and char:FindFirstChild("HumanoidRootPart")
+
+	if r then
+		if not targetMarker then
+			targetMarker =
+				makeMarker(r,"🎯 "..target.Name)
+		else
+			targetMarker.Adornee = r
+		end
+	end
+end
+
+targetBox.FocusLost:Connect(function()
+	targetName = targetBox.Text
+end)
+
+radarTargetButton.MouseButton1Click:Connect(function()
+	targetName = targetBox.Text
+	radarTarget = not radarTarget
+
+	radarTargetButton.Text =
+		radarTarget
+		and "🎯 RADAR TÊN: ON"
+		or "🎯 RADAR TÊN: OFF"
+
+	if not radarTarget and targetMarker then
+		targetMarker:Destroy()
+		targetMarker = nil
+	end
+end)
+
+--==================================================
+-- ITEM RADAR
+--==================================================
+
+local itemKeywords = {
+	"item",
+	"loot",
+	"drop",
+	"fruit",
+	"chest",
+	"weapon",
+	"collect",
+	"pickup",
+	"reward",
+	"coin",
+	"gem",
+	"tool"
+}
+
+local function looksLikeItem(obj)
+	if CollectionService:HasTag(obj,"Item")
+	or CollectionService:HasTag(obj,"Loot")
+	or CollectionService:HasTag(obj,"Collectible") then
+		return true
+	end
+
+	local name = string.lower(obj.Name)
+
+	for _,keyword in ipairs(itemKeywords) do
+		if string.find(name,keyword,1,true) then
+			return true
+		end
+	end
+
+	return false
+end
+
+local function getItemPart(obj)
+	if obj:IsA("BasePart") then
+		return obj
+	end
+
+	if obj:IsA("Model") then
+		if obj.PrimaryPart then
+			return obj.PrimaryPart
+		end
+
+		return obj:FindFirstChildWhichIsA("BasePart",true)
+	end
+
+	if obj:IsA("Tool") then
+		return obj:FindFirstChild("Handle")
+			or obj:FindFirstChildWhichIsA("BasePart",true)
+	end
+
+	return nil
+end
+
+local function updateItemRadar()
+	if not radarItems then
+		clearItemMarkers()
+		return
+	end
+
+	clearItemMarkers()
+
+	local found = {}
+
+	for _,obj in ipairs(workspace:GetDescendants()) do
+		if obj ~= getCharacter()
+		and looksLikeItem(obj) then
+
+			local part = getItemPart(obj)
+
+			if part and not found[part] then
+				found[part] = true
+
+				local marker =
+					makeMarker(part,"📦 "..obj.Name)
+
+				if marker then
+					table.insert(itemMarkers,marker)
+				end
+			end
+		end
+	end
+end
+
+radarItemButton.MouseButton1Click:Connect(function()
+	radarItems = not radarItems
+
+	radarItemButton.Text =
+		radarItems
+		and "📦 RADAR ITEM: ON"
+		or "📦 RADAR ITEM: OFF"
+
+	if radarItems then
+		updateItemRadar()
+	else
+		clearItemMarkers()
+	end
+end)
+
+--==================================================
+-- RADAR LOOP
+--==================================================
+
+local radarTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+	radarTimer += dt
+
+	if radarTimer >= 1 then
+		radarTimer = 0
+
+		if radarPlayers then
+			updatePlayerRadar()
+		end
+
+		if radarTarget then
+			updateTargetRadar()
+		end
+
+		if radarItems then
+			updateItemRadar()
+		end
+	end
+end)
+
+--==================================================
+-- FIX LAG
+--==================================================
+
+local function enableFixLag()
+	for _,obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("ParticleEmitter")
+		or obj:IsA("Trail")
+		or obj:IsA("Beam")
+		or obj:IsA("Smoke")
+		or obj:IsA("Fire")
+		or obj:IsA("Sparkles") then
+
+			obj.Enabled = false
+		end
+	end
+
+	for _,obj in ipairs(Lighting:GetChildren()) do
+		if obj:IsA("BloomEffect")
+		or obj:IsA("BlurEffect")
+		or obj:IsA("SunRaysEffect")
+		or obj:IsA("ColorCorrectionEffect")
+		or obj:IsA("DepthOfFieldEffect") then
+
+			obj.Enabled = false
+		end
+	end
+end
+
+lagButton.MouseButton1Click:Connect(function()
+	fixLag = not fixLag
+
+	if fixLag then
+		enableFixLag()
+	end
+
+	lagButton.Text =
+		fixLag
+		and "⚡ FIX LAG: ON"
+		or "⚡ FIX LAG: OFF"
+end)
+
+--==================================================
+-- HP / AUTO RESCUE
+--==================================================
+
+local lastRescue = 0
+
+RunService.Heartbeat:Connect(function()
+	local h = getHumanoid()
+	if not h then return end
+
+	if h.MaxHealth > 0 then
+		local percent = h.Health/h.MaxHealth*100
+
+		status.Text =
+			"❤️ HP: "..math.floor(h.Health)..
+			" / "..math.floor(h.MaxHealth)..
+			" | "..math.floor(percent).."%"
+
+		if protection
+		and AUTO_RESCUE
+		and percent <= LOW_HP
+		and safePosition
+		and not rescueRunning
+		and os.clock()-lastRescue > 3 then
+
+			lastRescue = os.clock()
+			flyToSafe()
+		end
+	end
+end)
+
+--==================================================
+-- RESPAWN
+--==================================================
+
+player.CharacterAdded:Connect(function()
+	task.wait(1)
+
+	stopFlight()
+	rescueRunning = false
+
+	if invisible then
+		invisible = false
+		transparencyCache = {}
+		invisButton.Text = "👻 TÀNG HÌNH: OFF"
+	end
+end)
+
+--==================================================
+-- KEYBOARD
+--==================================================
+
+UIS.InputBegan:Connect(function(input,gp)
+	if gp then return end
+
+	if input.KeyCode == Enum.KeyCode.F then
+		flyButton:Activate()
+	end
+end)
+
+print("🇻🇳 I_Love_Viet_Nam hub | FULL RADAR LOADED")
